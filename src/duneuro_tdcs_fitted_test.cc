@@ -36,7 +36,7 @@ int main(int argc, char** argv)
     Dune::ParameterTree config_tree;
     Dune::ParameterTreeParser config_parser;
     
-    config_parser.readINITree("configs.ini", config_tree);
+    config_parser.readINITree("fitted_configs.ini", config_tree);
     std::cout << "Parameter tree read" << std::endl;
     
     bool write_output = config_tree.get<bool>("output.write");
