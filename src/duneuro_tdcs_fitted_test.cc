@@ -59,24 +59,25 @@ int main(int argc, char** argv)
     std::cout << "First computing potential" << std::endl;
     std::unique_ptr<duneuro::DenseMatrix<Scalar>> potential = driver_ptr->solveTDCSForward(config_tree);
     std::cout << "Potential computed" << std::endl;
-    std::cout << "Computing volume currents" << std::endl;
-    Dune::ParameterTree gradient_config = config_tree.sub("potential_gradient");
-    std::unique_ptr<duneuro::DenseMatrix<Scalar>> electrical_current = driver_ptr->evaluateMultipleFunctionsAtElementCenters(*potential, gradient_config);
-    std::cout << "Volume currents computed" << std::endl;
-    std::cout << "Computing potentials at element centers" << std::endl;
-    gradient_config["evaluation_return_type"] = "potential";
-    std::unique_ptr<duneuro::DenseMatrix<Scalar>> electrical_potential_at_centers = driver_ptr->evaluateMultipleFunctionsAtElementCenters(*potential, gradient_config);
-    std::cout << "Potentials computed" << std::endl;
+    
     std::cout << "Computing element centers" << std::endl;
     std::vector<Dune::FieldVector<Scalar, dim>> element_centers = std::get<0>(driver_ptr->elementStatistics());
     std::cout << "Element centers computed" << std::endl;
+    
+    std::cout << "Evaluating potential and current at element centers" << std::endl;
+    Dune::ParameterTree gradient_config = config_tree.sub("potential_gradient");
+    std::unique_ptr<duneuro::Function> tdcsSolution = driver_ptr->makeDomainFunctionFromMatrixRow(*potential, 1);
+    std::unique_ptr<duneuro::DenseMatrix<Scalar>> electrical_current = driver_ptr->evaluateFunctionAtPositions(*tdcsSolution, element_centers, gradient_config);
+    
+    gradient_config["evaluation_return_type"] = "potential";
+    std::unique_ptr<duneuro::DenseMatrix<Scalar>> electrical_potential_at_centers = driver_ptr->evaluateFunctionAtPositions(*tdcsSolution, element_centers, gradient_config);
+    std::cout << "Evaluation finished" << std::endl;
     
     // visualization
     if(write_output) {
       std::cout << "We now visualize the solution using the vtk and vtu formats" << std::endl;
       std::cout << "We first write the headmodel" << std::endl;
       auto volume_writer_ptr = driver_ptr->volumeConductorVTKWriter(config_tree);
-      std::unique_ptr<duneuro::Function> tdcsSolution = driver_ptr->makeDomainFunctionFromMatrixRow(*potential, 1);
       volume_writer_ptr->addVertexData(*tdcsSolution, "potential");
       volume_writer_ptr->write(config_tree.sub("output"));
       
@@ -94,10 +95,10 @@ int main(int argc, char** argv)
       for(size_t i = 0; i < nrElements; ++i) {
         currentMagnitudes[i] = 0.0;
         for(size_t j = 0; j < dim; ++j) {
-          currentsAtCenters[i][j] = (*electrical_current)(1, 3 * i + j);
+          currentsAtCenters[i][j] = (*electrical_current)(0, 3 * i + j);
           currentMagnitudes[i] += currentsAtCenters[i][j] * currentsAtCenters[i][j];
         }
-        potentialAtCenters[i] = (*electrical_potential_at_centers)(1, i);
+        potentialAtCenters[i] = (*electrical_potential_at_centers)(0, i);
         currentMagnitudes[i] = std::sqrt(currentMagnitudes[i]);
       }
       duneuro::PointVTKWriter<Scalar, dim> currentWriter{element_centers};
