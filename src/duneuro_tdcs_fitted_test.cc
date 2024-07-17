@@ -9,6 +9,7 @@
 #include <dune/common/exceptions.hh> // We use exceptions
 
 #include <string>
+#include <cmath>
 
 #include <dune/common/parametertreeparser.hh>
 #include <dune/common/fvector.hh>
@@ -56,14 +57,18 @@ int main(int argc, char** argv)
     // solve tDCS forward problem
     std::cout << "Solving tDCS forward problem for one electrode pair" << std::endl;
     std::cout << "First computing potential" << std::endl;
-    std::unique_ptr<duneuro::DenseMatrix<Scalar>> potential = driver_ptr->computeTDCSEvaluationMatrix(config_tree);
+    std::unique_ptr<duneuro::DenseMatrix<Scalar>> potential = driver_ptr->solveTDCSForward(config_tree);
     std::cout << "Potential computed" << std::endl;
     std::cout << "Computing volume currents" << std::endl;
     Dune::ParameterTree gradient_config = config_tree.sub("potential_gradient");
-    std::unique_ptr<duneuro::DenseMatrix<Scalar>> electrical_current = driver_ptr->applyTDCSEvaluationMatrixAtCenters(*potential, gradient_config);
+    std::unique_ptr<duneuro::DenseMatrix<Scalar>> electrical_current = driver_ptr->evaluateMultipleFunctionsAtElementCenters(*potential, gradient_config);
     std::cout << "Volume currents computed" << std::endl;
+    std::cout << "Computing potentials at element centers" << std::endl;
+    gradient_config["evaluation_return_type"] = "potential";
+    std::unique_ptr<duneuro::DenseMatrix<Scalar>> electrical_potential_at_centers = driver_ptr->evaluateMultipleFunctionsAtElementCenters(*potential, gradient_config);
+    std::cout << "Potentials computed" << std::endl;
     std::cout << "Computing element centers" << std::endl;
-    std::unique_ptr<duneuro::DenseMatrix<Scalar>> element_statistics = driver_ptr->elementStatistics();
+    std::vector<Dune::FieldVector<Scalar, dim>> element_centers = std::get<0>(driver_ptr->elementStatistics());
     std::cout << "Element centers computed" << std::endl;
     
     // visualization
@@ -81,18 +86,24 @@ int main(int argc, char** argv)
       electrode_writer.write(filename_electrodes);
       
       std::cout << "Writing electrical current" << std::endl;
-      size_t nrElements = element_statistics->rows();
-      std::vector<Dune::FieldVector<Scalar, dim>> elementCenters(nrElements);
+      size_t nrElements = element_centers.size();
       std::vector<Dune::FieldVector<Scalar, dim>> currentsAtCenters(nrElements);
+      std::vector<Scalar> potentialAtCenters(nrElements);
+      std::vector<Scalar> currentMagnitudes(nrElements);
       
       for(size_t i = 0; i < nrElements; ++i) {
+        currentMagnitudes[i] = 0.0;
         for(size_t j = 0; j < dim; ++j) {
-          elementCenters[i][j] = (*element_statistics)(i, j + 2);
           currentsAtCenters[i][j] = (*electrical_current)(1, 3 * i + j);
+          currentMagnitudes[i] += currentsAtCenters[i][j] * currentsAtCenters[i][j];
         }
+        potentialAtCenters[i] = (*electrical_potential_at_centers)(1, i);
+        currentMagnitudes[i] = std::sqrt(currentMagnitudes[i]);
       }
-      duneuro::PointVTKWriter<Scalar, dim> currentWriter{elementCenters};
+      duneuro::PointVTKWriter<Scalar, dim> currentWriter{element_centers};
       currentWriter.addVectorData("electrical_current", currentsAtCenters);
+      currentWriter.addScalarData("electrical_potential", potentialAtCenters);
+      currentWriter.addScalarData("electrical_current_magnitude", currentMagnitudes);
       std::string filename_current = config_tree.get<std::string>("output.filename_current");
       currentWriter.write(filename_current);
       
